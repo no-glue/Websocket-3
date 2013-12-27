@@ -1,6 +1,10 @@
 <!DOCTYPE HTML>
 <html>
 <head>
+	<?php
+		//enter your host address and server_socket.php place
+		$server_socket = "localhost/server_socket.php";
+	?>
 	<style type="text/css">
 		#ping_window{
 			display:none;
@@ -58,7 +62,7 @@
 	<div id='ping_window'>
 		<form action='' method='post' name='address_box'>
 			IP address:<input type='text' size=20 id='dest_IP'/><br/>
-			<button type='button' value='PING!' onclick='testSocket("192.168.56.101:24568/server_socket.php")'>PING!</button>
+			<button type='button' value='PING!' onclick='testSocket("<?php echo $server_socket;?>")'>PING!</button>
 		</form>
 		<a href='#' onclick="go_back_ping()">Go Back</a>
 	</div>

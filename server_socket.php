@@ -120,6 +120,39 @@
 			$result = false;
 		return $result;
 	}
+
+	function traceroute($dest_addr)
+	{
+		$maximum_hops = 30;
+		$ttl = 1;
+		while($ttl < $maximum_hops){
+			$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
+			$send_socket = socket_create(AF_INET, SOCK_DGRAM, getprotobyname('udp'));
+			socket_set_option($send_socket, 0, 2, $ttl);
+			socket_bind($recv_socket, 0, 0);
+			$t1 = microtime(true);
+			socket_sendto($send_socket, "", 0, 0, $dest_addr);
+			$r =array($recv_socket);
+			$w = $e = array();
+			socket_select($r, $w, $e, 5, 0);
+			if(count($r)){
+				socket_recvfrom($recv_socket, $buf, 512, 0, $recv_addr, $recv_port);
+				if (empty($recv_addr)){
+					$recv_addr = "*";
+					$recv_port = "*";
+				} else {
+					$recv_name = gethostbyaddr($recv_addr);
+				}
+				printf ("%3d %-15s %.3f ms %s\n", $ttl, $recv_addr, $roundtrip_time, $recv_name);
+			} else {
+				printf ("%3d (timeout)\n", $ttl);
+			}
+			socket_close($recv_socket);
+			socket_close($send_socket);
+			$ttl++;
+			if($recv_addr == $dest_addr) break;
+		} 
+	}
 	//MAIN FUNCTION
 
 	$self_socket = init();
