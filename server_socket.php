@@ -1,15 +1,123 @@
 <?php
+//global variables
+	
+	$master = init();
+	$users = array();
+	$sockets = array($master);
 
-	$socket;
+	while(true){
+		$changed = $sockets;
+		socket_select($changed, $w=NULL, $e=NULL, 0);
+		foreach($changed as $socket){
+			if($socket == $master){
+				$client = socket_accept($master);
+				create_newuser($client);
+			}
+			else{
+				$bytes = @socket_recv($socket, $buf, 2048, 0);
+					$user = get_user_by_socket($socket);
+					if(!$user -> handshake)
+						do_handshake($user,$buf);
+				
+					$buf = receiveMessage($buf);
+					if($buf == 'close')
+						delete_user($socket);
+					process($user, $buf);//implement this process(DONE)
+					//$buf syntax: order(4)+ip_addr(variable);
+					
+				
+			}
+		}
+		foreach ($users as $user) {
+			if($user->order == null)
+				continue;
+			else{
+				switch ($user->order) {
+					case 'ping':
+						# code...
+						if(microtime(true) - $user->timestamp < 1)
+							break;
+						else{
+							sendMessage(ping($user->ip_addr),$user->socket);
+							$user->timestamp = microtime(true);
+						}
+						break;		
+					default:
+						# code...
+						break;
+				}
+			}
+		}
+	//	$client = handshake($self_socket);
+	//	$receive = receiveMessage($client);// this is the order;
+		//ping traceroute pathping
+		//run the relative php
+		//
+	//	echo $receive."\n";
+	//	sendMessage(ping("192.168.56.101"),$client);
+	//	echo "CHECK1st:\n".$num."\n";
+	//	sleep(12);
+	//	$num = check_message($client);
+	//	echo "CHECK:\n".$num."\n";
+	}
+
+	function create_newuser($socket){
+		global $sockets, $users;
+		$user = new User();
+		$user -> id = uniqid();
+		$user -> socket = $socket;
+		array_push($users, $user);
+		array_push($sockets, $socket);
+	}
+	function delete_user($socket){
+		global $sockets, $users;
+		$found = null;
+		$n = count($users);
+		for($i=0;$i<$n;$i++){
+			if($users[$i]->socket == $socket){
+				$found = $i;
+				break;
+			}
+		}
+		array_splice($users, $found, 1);
+		$index = array_search($socket, $sockets);
+		array_splice($sockets, $socket,1);
+		socket_close($socket);
+		echo "CLOSEDSOCKET";
+	}
+	function get_user_by_socket($socket){
+		global $users;
+		$found = null;
+		foreach($users as $user){
+			if($user->socket == $socket){
+				$found = $user;
+				break;
+			}
+		}
+		return $found;
+	}
+	function process($user, $buf){
+		$temp_str = str_split($buf,4);
+		$order = $temp_str[0];
+		$n = count($temp_str);
+		$ip_addr = "";
+		for($i=1;$i<$n;$i++){
+			$ip_addr .= $temp_str[$i];
+		}
+		$user->order = $order;
+		$user->ip_addr = $ip_addr;
+		$user->timestamp = microtime(true);
+	}
+
 	function asc2bin($temp){
 		$len = strlen($temp);
 		$bin_data="";
 		for($i=0;$i<$len;$i++){
 			$bin_data .= sprintf("%08b",ord(substr($temp, $i, 1)));
 		}
-
 		return $bin_data;
 	}
+
 	function bin2asc($temp){
 		$len = strlen($temp);
 		$str_data = "";
@@ -41,10 +149,10 @@
 		return $socket;
 	}
 	
-	function handshake($self_socket)
+	function do_handshake($user,$buf)
 	{
-		$client_connection = socket_accept($self_socket);
-		$data = socket_read($client_connection,8192);
+		$client_connection = $user->socket;
+		$data = $buf;
 		printf("Received: \n".$data);
 		$accept_keyplace=strpos($data, "Sec-WebSocket-Key")+19;
 		$accept_key=substr($data, $accept_keyplace,24);
@@ -54,6 +162,7 @@
 						.$new_key."\r\n\r\n";
 		echo $response_word;
 		socket_write($client_connection, $response_word,strlen($response_word));
+		$user->handshake = true;
 		return $client_connection;
 
 	}
@@ -68,17 +177,19 @@
 		$data = asc2bin($message);
 		$encoded_bin = $pre_bin.$len_bin.$data;
 		$encoded_message = bin2asc($encoded_bin);
-		echo $encoded_message;
+		echo "sendout:".$encoded_message."\n";
 		socket_write($client, $encoded_message, strlen($encoded_message));
 	}
 
-	function receiveMessage($client){
-		$receive = asc2bin(socket_read($client, 1024));//a binary string;
+	function receiveMessage($receive){
+		//$receive = asc2bin(socket_read($client, 1024));//a binary string;
+		$receive = asc2bin($receive);
 		$whole_length = strlen($receive);
-		if($receive[8]==0)
-			echo "ERROR FRAME; WARNING: MAYBE SECURITY REASONS";
-		else
-		{
+		echo $receive;
+	#	if($receive[8]==0)
+	#		echo "ERROR FRAME; WARNING: MAYBE SECURITY REASONS";
+	#	else
+	#	{
 			$binary_pointer = 16;
 			$mask = array();
 			$masked_binary = array();
@@ -101,14 +212,14 @@
 			}
 			
 			return $final_result;
-		}
-		return "ERRORCODE";
+	#	}
+		#return "ERRORCODE";
 	}
 
 	function ping($host, $timeout = 1){
 		$package = "\x08\x00\x7d\x4b\x00\x00\x00PingHost";
 		$socket = socket_create(AF_INET, SOCK_RAW, 1);
-		socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array('sec' => $timeout, 'usec => 0'));
+		socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array('sec' => $timeout, 'usec' => 0));
 		socket_connect($socket, $host, null);
 		$ts = microtime(true);
 		socket_send($socket, $package, strlen($package), 0);
@@ -121,50 +232,56 @@
 		return $result;
 	}
 
-	function traceroute($dest_addr)
+	function traceroute($user, ttl, $dest_addr)
 	{
-		$maximum_hops = 30;
-		$ttl = 1;
-		while($ttl < $maximum_hops){
-			$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
-			$send_socket = socket_create(AF_INET, SOCK_DGRAM, getprotobyname('udp'));
-			socket_set_option($send_socket, 0, 2, $ttl);
-			socket_bind($recv_socket, 0, 0);
-			$t1 = microtime(true);
-			socket_sendto($send_socket, "", 0, 0, $dest_addr);
-			$r =array($recv_socket);
-			$w = $e = array();
-			socket_select($r, $w, $e, 5, 0);
-			if(count($r)){
-				socket_recvfrom($recv_socket, $buf, 512, 0, $recv_addr, $recv_port);
-				if (empty($recv_addr)){
-					$recv_addr = "*";
-					$recv_port = "*";
-				} else {
-					$recv_name = gethostbyaddr($recv_addr);
-				}
-				printf ("%3d %-15s %.3f ms %s\n", $ttl, $recv_addr, $roundtrip_time, $recv_name);
+		$port = 10384;
+		$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
+		$send_socket = socket_create(AF_INET, SOCK_DGRAM, getprotobyname('udp'));
+		socket_set_option($send_socket, 0, 2, $user->ttl);
+		socket_bind($recv_socket, 0, 0);
+		$t1 = microtime(true);
+		socket_sendto($send_socket, "", 0, 0, $user->ip_addr,$port);
+		$r =array($recv_socket);
+		$w = $e = array();
+		socket_select($r, $w, $e, 5, 0);
+		if(count($r)){
+			socket_recvfrom($recv_socket, $buf, 512, 0, $recv_addr, $recv_port);
+			if (empty($recv_addr)){
+				$recv_addr = "*";
+				$recv_port = "*";
 			} else {
-				printf ("%3d (timeout)\n", $ttl);
+				$recv_name = gethostbyaddr($recv_addr);
 			}
+			$roundtrip_time = microtime(true) - $t1;
+			$result = sprintf ("%3d %-15s %.3f ms %s\n", $user->ttl, $recv_addr, $roundtrip_time, $recv_name);
+		} 
+		else {
+			$result = sprintf ("%3d (timeout)\n", $user->ttl);
+		}
 			socket_close($recv_socket);
 			socket_close($send_socket);
-			$ttl++;
-			if($recv_addr == $dest_addr) break;
-		} 
+			$user->ttl++;
+			if($recv_addr == $user->ip_addr) 
+				$user->ttl = 0;
+			return $result;
 	}
-	//MAIN FUNCTION
+	function check_message($client){
+		$r = array($client);
+		$w = $e = array();
+		$num = socket_select($r, $w, $e, 0);
+		return $num;
+	}
 
-	$self_socket = init();
-	while(true){
-		$client = handshake($self_socket);
-		$receive = receiveMessage($client);
-		echo $receive."\n";
-		sendMessage("HELLO",$client);
-		sleep(3);
-		sendMessage(ping("192.168.56.101"),$client);
-		//sendMessage(">hello",$client);
-		//socket_close($client);
-	}
+
+	//MAIN FUNCTION
 	
+	class User{
+		var $id;
+		var $socket;
+		var $order;
+		var $ip_addr;
+		var $handshake;
+		var $timestamp;
+		var $ttl;//0=done;
+	}
 ?>
