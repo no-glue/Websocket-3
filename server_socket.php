@@ -1,6 +1,5 @@
 <?php
 //global variables
-	
 	$master = init();
 	$users = array();
 	$sockets = array($master);
@@ -20,12 +19,13 @@
 						do_handshake($user,$buf);
 				
 					$buf = receiveMessage($buf);
-					if($buf == 'close')
+					if($buf == 'CLOSE')
+					{
 						delete_user($socket);
+						echo "\nDISCONNECTED\n";
+					}
 					process($user, $buf);//implement this process(DONE)
-					//$buf syntax: order(4)+ip_addr(variable);
-					
-				
+					//$buf syntax: order(4)+ip_addr(variable);	
 			}
 		}
 		foreach ($users as $user) {
@@ -38,10 +38,30 @@
 						if(microtime(true) - $user->timestamp < 1)
 							break;
 						else{
-							sendMessage(ping($user->ip_addr),$user->socket);
+							$tobe_sent = ping($user->ip_addr);
+							if($tobe_sent == false)
+							{
+								$user->order = '';
+								sendMessage("FALSE_CONNECTION",$user->socket);
+							}
+							else
+							sendMessage($tobe_sent,$user->socket);
 							$user->timestamp = microtime(true);
 						}
-						break;		
+						break;
+					case 'trac':
+						# code...
+						if($user->ttl == 0){
+							$user->order = '';
+							break;
+						}
+						if(microtime(true) - $user->timestamp < 1)
+							break;
+						else{
+							sendMessage(traceroute($user),$user->socket);
+							$user->timestamp = microtime(true);
+						}
+						break;			
 					default:
 						# code...
 						break;
@@ -81,7 +101,7 @@
 		}
 		array_splice($users, $found, 1);
 		$index = array_search($socket, $sockets);
-		array_splice($sockets, $socket,1);
+		array_splice($sockets, $index,1);
 		socket_close($socket);
 		echo "CLOSEDSOCKET";
 	}
@@ -135,7 +155,7 @@
 			else
 				$result = $result . "1";
 		}
-		echo $result."\n";
+		//echo "RESULT:".$result."\n";
 		return $result;
 	}	
 	function init()
@@ -184,8 +204,10 @@
 	function receiveMessage($receive){
 		//$receive = asc2bin(socket_read($client, 1024));//a binary string;
 		$receive = asc2bin($receive);
+		if($receive[4]=='1'&&$receive[7]=='0')//gai wei pan bie
+			return "CLOSE";
 		$whole_length = strlen($receive);
-		echo $receive;
+		echo "RECEIVED:".$receive."\n";
 	#	if($receive[8]==0)
 	#		echo "ERROR FRAME; WARNING: MAYBE SECURITY REASONS";
 	#	else
@@ -210,7 +232,6 @@
 				$bin_result = myXOR($mask[$mask_place],$masked_binary[$i]);
 				$final_result .= chr(bindec($bin_result));
 			}
-			
 			return $final_result;
 	#	}
 		#return "ERRORCODE";
@@ -223,16 +244,19 @@
 		socket_connect($socket, $host, null);
 		$ts = microtime(true);
 		socket_send($socket, $package, strlen($package), 0);
-		if (socket_read($socket, 255)){
+		if(socket_read($socket, 255)){
 			$result = 1000*(microtime(true) - $ts);
 			$result = sprintf("%05f",($result + ""));
 		}
-		else 
+		else{
 			$result = false;
+		}
+		socket_close($socket);
+		echo "result: ".$result."\n";
 		return $result;
 	}
 
-	function traceroute($user, ttl, $dest_addr)
+	function traceroute($user)
 	{
 		$port = 10384;
 		$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
@@ -254,9 +278,11 @@
 			}
 			$roundtrip_time = microtime(true) - $t1;
 			$result = sprintf ("%3d %-15s %.3f ms %s\n", $user->ttl, $recv_addr, $roundtrip_time, $recv_name);
+			echo "result".$result."\n";
 		} 
 		else {
 			$result = sprintf ("%3d (timeout)\n", $user->ttl);
+			$user->ttl = -1;
 		}
 			socket_close($recv_socket);
 			socket_close($send_socket);
@@ -282,6 +308,6 @@
 		var $ip_addr;
 		var $handshake;
 		var $timestamp;
-		var $ttl;//0=done;
+		var $ttl = 1;//0=done;
 	}
 ?>
