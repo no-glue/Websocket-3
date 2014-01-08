@@ -3,7 +3,7 @@
 <head>
 	<?php
 		//enter your host address and server_socket.php place
-		$server_socket = '192.168.56.101:24568/server_socket.php';
+		$server_socket = '127.0.0.1:24568/server_socket.php';
 	?>
 	<style type="text/css">
 		#ping_window{
@@ -38,6 +38,11 @@
  		function ping_on_Open(evt){
  			result_string = "<p>Welcome to use PING!</p>";
  			socket.send("ping"+document.getElementById("dest_IP").value);
+ 			result_innerChange();
+ 		}
+ 		function path_on_Open(evt){
+ 			result_string = "<p>Welcome to use PathPing!</p>";
+ 			socket.send("path"+document.getElementById("dest_IP").value);
  			result_innerChange();
  		}
  		function on_Close(evt) { 
@@ -77,6 +82,12 @@
  				socket.onmessage = function (evt) { on_Message(evt) }; 
  				socket.onerror = function (evt) { on_Error(evt) }; 
  			}
+ 			if(action == "path"){
+ 				socket.onopen = function (evt) { path_on_Open(evt); }; 
+ 				socket.onclose = function (evt) { on_Close(evt) }; 
+ 				socket.onmessage = function (evt) { on_Message(evt) }; 
+ 				socket.onerror = function (evt) { on_Error(evt) }; 
+ 			}
  		}
  		function ping_close(){
  			socket.close();
@@ -99,6 +110,7 @@
 			IP address:<input type='text' size=20 id='dest_IP'/><br/>
 			<button type='button' value='PING!' onclick='testSocket("<?php echo $server_socket?>","ping")'>PING!</button>
 			<button type='button' value='Traceroute' onclick='testSocket("<?php echo $server_socket?>","trac")'>TRACEROUTE</button>
+			<button type='button' value='PathPing' onclick='testSocket("<?php echo $server_socket?>","path")'>PATHPING</button>
 		</form>
 		<div id='ping_content'>
 			<p id='ping_string'>Ping:</p>

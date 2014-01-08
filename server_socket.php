@@ -3,8 +3,9 @@
 	$master = init();
 	$users = array();
 	$sockets = array($master);
-
+	$receive_address = "unknown";
 	while(true){
+		usleep(400);
 		$changed = $sockets;
 		socket_select($changed, $w=NULL, $e=NULL, 0);
 		foreach($changed as $socket){
@@ -38,15 +39,15 @@
 						if(microtime(true) - $user->timestamp < 1)
 							break;
 						else{
-							$tobe_sent = ping($user->ip_addr);
+							$tobe_sent = ping($user->ip_addr,'80');
 							if($tobe_sent == false)
 							{
 								$user->order = '';
 								sendMessage("FALSE_CONNECTION",$user->socket);
 							}
 							else
-							sendMessage($tobe_sent,$user->socket);
-							$user->timestamp = microtime(true);
+								sendMessage($tobe_sent,$user->socket);
+								$user->timestamp = microtime(true);
 						}
 						break;
 					case 'trac':
@@ -61,7 +62,23 @@
 							sendMessage(traceroute($user),$user->socket);
 							$user->timestamp = microtime(true);
 						}
-						break;			
+						break;	
+					case 'path':
+						if($user->ttl == 0){
+							$user->order = '';
+							break;
+						}
+						if(microtime(true) - $user->timestamp < 1)
+							break;
+						else{
+							$result = pathping($user);
+							if($result != false){
+								echo $result;
+								sendMessage($result,$user->socket);
+								$user->timestamp = microtime(true);
+							}
+						}	
+						break;	
 					default:
 						# code...
 						break;
@@ -160,11 +177,12 @@
 	}	
 	function init()
 	{
+		$local = '127.0.0.1';
 		$tcp = getprotobyname("tcp");
 		$socket = socket_create(AF_INET, SOCK_STREAM, $tcp);
 		if(!$socket)
 			die('error socket');
-		socket_bind($socket, '192.168.56.101', 24568);
+		socket_bind($socket, $local, 24568);
 		socket_listen($socket);
 		return $socket;
 	}
@@ -237,27 +255,31 @@
 		#return "ERRORCODE";
 	}
 
-	function ping($host, $timeout = 1){
-		$package = "\x08\x00\x7d\x4b\x00\x00\x00PingHost";
-		$socket = socket_create(AF_INET, SOCK_RAW, 1);
-		socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, array('sec' => $timeout, 'usec' => 0));
-		socket_connect($socket, $host, null);
-		$ts = microtime(true);
-		socket_send($socket, $package, strlen($package), 0);
-		if(socket_read($socket, 255)){
-			$result = 1000*(microtime(true) - $ts);
-			$result = sprintf("%05f",($result + ""));
-		}
-		else{
-			$result = false;
-		}
-		socket_close($socket);
-		echo "result: ".$result."\n";
-		return $result;
+	//获取时间
+	function mt_f (){
+		list($usec,$sec) = explode(" ",microtime());
+		return ((float)$usec + (float)$sec); //微秒加秒
+	}
+	function ping($host,$port){
+		$time_s = mt_f();
+		
+		$ip = $host;
+
+		$fp = @fsockopen($host,$port);
+		if(!$fp)
+			return false;
+		$get = "GET / HTTP/1.1\r\nHost:".$host."\r\nConnect:".$port."Close\r\n";
+		fputs($fp,$get);
+		fclose($fp);
+		$time_e = mt_f();
+		$time = $time_e - $time_s;
+		$time = ceil($time * 1000);
+		return 'reply from '.$ip.' time = '.$time."ms\n";
 	}
 
 	function traceroute($user)
 	{
+		$retry = 3;
 		$port = 10384;
 		$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
 		$send_socket = socket_create(AF_INET, SOCK_DGRAM, getprotobyname('udp'));
@@ -267,7 +289,7 @@
 		socket_sendto($send_socket, "", 0, 0, $user->ip_addr,$port);
 		$r =array($recv_socket);
 		$w = $e = array();
-		socket_select($r, $w, $e, 5, 0);
+		socket_select($r, $w, $e, 1, 0);
 		if(count($r)){
 			socket_recvfrom($recv_socket, $buf, 512, 0, $recv_addr, $recv_port);
 			if (empty($recv_addr)){
@@ -291,14 +313,61 @@
 				$user->ttl = 0;
 			return $result;
 	}
+
+	function pathping($user){
+		global $receive_address;
+		$port = 10384;
+		$recv_socket = socket_create(AF_INET, SOCK_RAW, getprotobyname('icmp'));
+		$send_socket = socket_create(AF_INET, SOCK_DGRAM, getprotobyname('udp'));
+		socket_set_option($send_socket, 0, 2, $user->ttl);
+		socket_bind($recv_socket, 0, 0);
+		socket_sendto($send_socket, "", 0, 0, $user->ip_addr,$port);
+		$r =array($recv_socket);
+		$w = $e = array();
+		socket_select($r, $w, $e, 1, 0);
+		if(count($r)){
+			socket_recvfrom($recv_socket, $buf, 512, 0, $recv_addr, $recv_port);
+			$user->success++;
+			$receive_address = $recv_addr;
+			echo "SUCCESS\n";
+			$result = false;
+			echo "result".$result."\n";
+		} 
+		else {
+			$result = false;
+		}
+			socket_close($recv_socket);
+			socket_close($send_socket);
+			if($user->package == 0){
+				$user->ttl++;
+				$user->package = 10;
+				
+				if($user->success == 0){
+					$return = "FAILED To connect next hop!";
+					$receive_address = "unknown";
+					sendMessage($return,$user->socket);
+					$user->ttl = 0;
+				}
+				else{
+					$result = "TO: ".$receive_address."  Success/Package:  ".$user->success."/".$user->package."\n";
+					if($receive_address == $user->ip_addr) {
+						echo "FINISHED\n";
+						$user->ttl = 0;
+						$result .= "FINISHED";
+					}
+				}
+				$user->success = 0;
+			}
+
+			$user->package--;
+			return $result;
+	}
 	function check_message($client){
 		$r = array($client);
 		$w = $e = array();
 		$num = socket_select($r, $w, $e, 0);
 		return $num;
 	}
-
-
 	//MAIN FUNCTION
 	
 	class User{
@@ -309,5 +378,7 @@
 		var $handshake;
 		var $timestamp;
 		var $ttl = 1;//0=done;
+		var $package = 10;
+		var $success = 0;
 	}
 ?>
