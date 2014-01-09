@@ -216,7 +216,11 @@
 		$encoded_bin = $pre_bin.$len_bin.$data;
 		$encoded_message = bin2asc($encoded_bin);
 		echo "sendout:".$encoded_message."\n";
-		socket_write($client, $encoded_message, strlen($encoded_message));
+		$result = socket_write($client, $encoded_message, strlen($encoded_message));
+		if (FALSE === $result){
+			echo "SendMessage Wrong, auto disconnection";
+			delete_user($client);
+		}
 	}
 
 	function receiveMessage($receive){
