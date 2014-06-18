@@ -305,17 +305,18 @@
 			$roundtrip_time = microtime(true) - $t1;
 			$result = sprintf ("%3d %-15s %.3f ms %s\n", $user->ttl, $recv_addr, $roundtrip_time, $recv_name);
 			echo "result".$result."\n";
+			echo "ttl".$user->ttl."\n";
 		} 
 		else {
 			$result = sprintf ("%3d (timeout)\n", $user->ttl);
 			$user->ttl = -1;
 		}
-			socket_close($recv_socket);
-			socket_close($send_socket);
-			$user->ttl++;
-			if($recv_addr == $user->ip_addr) 
-				$user->ttl = 0;
-			return $result;
+		socket_close($recv_socket);
+		socket_close($send_socket);
+		$user->ttl++;
+		if($recv_addr == $user->ip_addr) 
+			$user->ttl = 0;
+		return $result;
 	}
 
 	function pathping($user){
